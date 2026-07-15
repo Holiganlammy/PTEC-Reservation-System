@@ -9,12 +9,16 @@ import {
   ChevronsUpDown,
   Home,
   Calendar,
+  CalendarDays,
+  ClipboardList,
+  ClipboardCheck,
+  LayoutDashboard,
   Package,
   BarChart3,
   MessageSquare,
   type LucideIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { logout } from "@/lib/auth/logout";
 import {
@@ -29,7 +33,8 @@ import {
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useSession } from "next-auth/react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { MENU_CONFIG } from "@/config/permissions";
+import { MENU_CONFIG, findMatchingMenuItem, type MenuItem } from "@/config/permissions";
+import { fetchDynamicMenu } from "@/lib/menu";
 import { SidebarMenuItem } from "./SidebarMenuItem";
 import clsx from "clsx";
 import { usePathname } from "next/navigation";
@@ -39,6 +44,10 @@ import Purethai from "@/image/SHWJSE6g_400x400.jpg";
 
 const ICONS: Record<string, LucideIcon> = {
   Calendar,
+  CalendarDays,
+  ClipboardList,
+  ClipboardCheck,
+  LayoutDashboard,
 };
 
 const getIcon = (iconName: string) => {
@@ -51,15 +60,56 @@ interface SiteHeaderProps {
 }
 
 export default function SiteHeader({ children }: SiteHeaderProps) {
-  const { data: session } = useSession({ required: false });
+  const { data: session, status: sessionStatus } = useSession({ required: false });
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const roleId = session?.user?.role_id;
-  const visibleMenu = useMemo(
+  const staticMenu = useMemo(
     () => MENU_CONFIG.filter((item) => roleId !== undefined && item.roles.includes(roleId)),
     [roleId]
   );
+
+  // source มาจาก claim ที่แต่ละแอปประกาศเองตรงๆ ตอน sign-in (ใน jwt() callback ของตัวเอง)
+  // 'portal' = login/เข้ามาทาง Portal → ใช้เมนู dynamic จาก Apps_List_Menu ต่อเนื่อง ให้ดูเนียนเหมือนอยู่ Portal
+  // อย่างอื่น (เช่น 'reservation' หรือไม่มีเลย) = เข้าตรงมาที่ reservation → ใช้ staticMenu ทันที ไม่ยิง request หา Portal เลย
+  const willTryDynamic = session?.user?.source === "portal";
+
+  const [dynamicMenu, setDynamicMenu] = useState<MenuItem[] | null>(null);
+  // "idle" = ยังไม่รู้ต้องลองไหม, "loading" = กำลังยิง Portal อยู่ (ห้ามโชว์ staticMenu แทรกตอนนี้ กันเมนูกระพริบ), "done" = ตัดสินใจแล้วไม่ว่าจะสำเร็จหรือ fallback
+  const [dynamicMenuStatus, setDynamicMenuStatus] = useState<"idle" | "loading" | "done">("idle");
+
+  useEffect(() => {
+    const userId = session?.user?.UserID;
+    if (!userId) return;
+
+    if (!willTryDynamic) {
+      setDynamicMenuStatus("done");
+      return;
+    }
+
+    let cancelled = false;
+    setDynamicMenuStatus("loading");
+    fetchDynamicMenu(userId, session?.user?.access_token)
+      .then((menu) => {
+        if (!cancelled && menu.length > 0) setDynamicMenu(menu);
+      })
+      .catch(() => {
+        // เงียบไว้ — fallback เป็น staticMenu อยู่แล้ว
+      })
+      .finally(() => {
+        if (!cancelled) setDynamicMenuStatus("done");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.UserID, session?.user?.access_token, willTryDynamic]);
+
+  // ยังโหลด session อยู่ หรือกำลังรอผล dynamic menu จาก Portal — โชว์ skeleton แทน ไม่โชว์ staticMenu แว้บแล้วโดนทับ
+  const isMenuLoading = sessionStatus === "loading" || dynamicMenuStatus === "loading";
+  const visibleMenu = dynamicMenu ?? staticMenu;
+  const currentMenuItem = findMatchingMenuItem(pathname, visibleMenu);
 
   const toggleCollapse = () => setIsCollapsed(!isCollapsed);
 
@@ -140,17 +190,20 @@ export default function SiteHeader({ children }: SiteHeaderProps) {
                 </TooltipContent>
               </Tooltip>
 
-              {/* Menu Items — จาก MENU_CONFIG (static), กรองตาม role_id */}
-              {visibleMenu.map((item) => (
-                <SidebarMenuItem
-                  key={item.path}
-                  label={item.label}
-                  path={item.path}
-                  icon={getIcon(item.icon)}
-                  activePath={pathname}
-                  isCollapsed={isCollapsed}
-                />
-              ))}
+              {/* Menu Items — จาก Portal (dynamic, มี tree) หรือ MENU_CONFIG (static fallback) */}
+              {isMenuLoading ? (
+                <MenuSkeleton isCollapsed={isCollapsed} />
+              ) : (
+                visibleMenu.map((item) => (
+                  <SidebarMenuItem
+                    key={item.path || item.label}
+                    item={item}
+                    activePath={pathname}
+                    isCollapsed={isCollapsed}
+                    getIcon={getIcon}
+                  />
+                ))
+              )}
             </div>
           </div>
 
@@ -267,15 +320,33 @@ export default function SiteHeader({ children }: SiteHeaderProps) {
           </Button>
 
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>Building Your Application</span>
+            <span>Reservation System</span>
             <span>/</span>
-            <span className="text-foreground font-medium">{pathname.split("/").pop() || "Home"}</span>
+            <span className="text-foreground font-medium">
+              {currentMenuItem?.label ?? (pathname === "/" ? "Home" : pathname.split("/").pop())}
+            </span>
           </div>
         </div>
 
         {/* Page Content */}
         <div className="flex-1 overflow-y-auto bg-background">{children}</div>
       </div>
+    </div>
+  );
+}
+
+function MenuSkeleton({ isCollapsed }: { isCollapsed: boolean }) {
+  return (
+    <div className="space-y-1" aria-hidden>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div
+          key={i}
+          className={clsx(
+            "h-9 animate-pulse rounded-lg bg-gray-800/60",
+            isCollapsed ? "mx-auto w-9" : "w-full"
+          )}
+        />
+      ))}
     </div>
   );
 }

@@ -1,20 +1,29 @@
-// components/TokenManage/TokenMonitor.tsx
+// components/SessionMonitor/SessionManagement.tsx
 "use client"
 
 import { useEffect, useState } from "react"
 import { useSession, signOut } from "next-auth/react"
 import { usePathname, useRouter } from "next/navigation"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { AlertCircle, AlertCircleIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert"
+
+function formatCountdown(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes > 0) {
+    return `${minutes} นาที ${seconds} วินาที`
+  }
+  return `${seconds} วินาที`
+}
 
 interface SessionToken {
   expires: string
@@ -40,16 +49,17 @@ export function SessionMonitor() {
   const [showWarning, setShowWarning] = useState(false)
   const [timeRemaining, setTimeRemaining] = useState(0)
 
-  //  ฟังก์ชัน logout
-  const handleLogout = async () => {
+  //  หมดอายุแล้วจริง — sign out แล้วพากลับไปหน้า login เลย ไม่ต้องรอ user รีเฟรชเอง
+  const handleExpiredConfirm = async () => {
     setIsDialogOpen(false)
-    await signOut({
-      redirect: false
-    })
+    await signOut({ redirect: false })
+    router.push(`/login?redirect=${encodeURIComponent(pathname)}`)
   }
 
   useEffect(() => {
-    const publicPaths = ["/login", "/forget_password", "/reset-password", "/unauthorized", "/"]
+    // "/" คือหน้า home ที่ต้อง login ก่อนถึงเข้าได้ ไม่ใช่ public page — ห้ามใส่ในนี้
+    // (ถ้าใส่ไว้ พอ user นั่งอยู่หน้า home เฉยๆ effect จะ return ก่อนถึง setInterval เลย ไม่มีวันเช็ค expiry)
+    const publicPaths = ["/login", "/forget_password", "/reset-password", "/unauthorized"]
     if (publicPaths.includes(pathname)) {
       return
     }
@@ -62,36 +72,31 @@ export function SessionMonitor() {
 
     const checkInterval = setInterval(() => {
       const token = session as SessionToken
-      
+
       if (token.expires) {
         const expiresDate = new Date(token.expires)
         const expiresTime = expiresDate.getTime()
         const now = Date.now()
-        
+
         const remaining = expiresTime - now
-        const remainingSeconds = Math.floor(remaining / 1000)
-        const remainingMinutes = Math.floor(remainingSeconds / 60)
-        
-        //  ถ้าหมดอายุแล้ว → แสดง dialog
+        const remainingSeconds = Math.max(0, Math.floor(remaining / 1000))
+
+        //  ถ้าหมดอายุแล้ว → แสดง dialog บังคับกดตกลงแล้วพาไป login
         if (remaining <= 0) {
           console.log("[AUTH] ❌ Session expired, showing dialog...")
+          setShowWarning(false)
           setIsDialogOpen(true)
           clearInterval(checkInterval)
-          handleLogout()
-        } 
-        //  ถ้าเหลือเวลาน้อยกว่า 5 นาที → แสดงแจ้งเตือน
+        }
+        //  ถ้าเหลือเวลาน้อยกว่า 5 นาที → แสดงแจ้งเตือนล่วงหน้า (กำลังจะหมดอายุ) นับถอยหลังเป็นวินาที
         else if (remainingSeconds < 5 * 60) {
-          setTimeRemaining(remainingMinutes)
+          setTimeRemaining(remainingSeconds)
           setShowWarning(true)
-          setTimeout(() => {
-            setShowWarning(false)
-          }, 10000);
-          console.warn(`[AUTH] ⚠️ Session expiring in ${remainingMinutes} minutes`)
         } else {
           setShowWarning(false)
         }
       }
-    }, 10 * 1000)
+    }, 1000)
 
     return () => {
       clearInterval(checkInterval)
@@ -100,14 +105,14 @@ export function SessionMonitor() {
 
   return (
     <>
-      {/*  แจ้งเตือนก่อนหมดอายุ */}
+      {/*  แจ้งเตือนก่อนหมดอายุ — เตือนล่วงหน้า ไม่บล็อกการใช้งาน */}
       {showWarning && (
         <div className='fixed right-7 bottom-5 bg-opacity-30 backdrop-blur-sm flex items-center justify-center z-50 p-4'>
           <Alert variant="default">
             <AlertCircleIcon className='items-center' />
             <AlertTitle className='text-lg font-semibold'>Session กำลังจะหมดอายุ</AlertTitle>
             <AlertDescription>
-              <p>Session ของท่านกำลังจะหมดอายุ ในอีก 5 นาที</p>
+              <p>Session ของท่านกำลังจะหมดอายุ ในอีก {formatCountdown(timeRemaining)}</p>
               <ul className="list-inside list-disc text-sm">
                 <li>กรุณาดำเนินการก่อนที่เซสชันจะหมดอายุ</li>
                 <li>หากเซสชันหมดอายุ ท่านจะต้องล็อกอินใหม่อีกครั้ง</li>
@@ -118,43 +123,39 @@ export function SessionMonitor() {
         </div>
       )}
 
-      {/*  Dialog เมื่อ session หมดอายุ */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent 
-          className="sm:max-w-lg"
-          onPointerDownOutside={(e) => e.preventDefault()}
-          onEscapeKeyDown={(e) => e.preventDefault()}
-        >
-          <DialogHeader>
+      {/*  หมดอายุแล้วจริง — บังคับกดตกลง ปิดด้วยวิธีอื่นไม่ได้ */}
+      <AlertDialog open={isDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
             <div className="flex items-center gap-3 mb-2">
               <div className="h-12 w-12 rounded-full bg-gray-400 dark:bg-black flex items-center justify-center">
                 <AlertCircle className="h-6 w-6 text-black dark:text-black" />
               </div>
               <div>
-                <DialogTitle className="text-xl">Session หมดอายุ</DialogTitle>
-                <DialogDescription className="text-sm text-muted-foreground mt-1">
+                <AlertDialogTitle className="text-xl">Session หมดอายุ</AlertDialogTitle>
+                <AlertDialogDescription className="text-sm text-muted-foreground mt-1">
                   กรุณาเข้าสู่ระบบอีกครั้ง
-                </DialogDescription>
+                </AlertDialogDescription>
               </div>
             </div>
-          </DialogHeader>
-          
-          <div className="py-4">
+          </AlertDialogHeader>
+
+          <div className="py-2">
             <p className="text-sm text-muted-foreground">
               Session ของคุณหมดอายุแล้ว เพื่อความปลอดภัยของข้อมูล กรุณาเข้าสู่ระบบใหม่อีกครั้ง
             </p>
           </div>
 
-          <DialogFooter>
-            <Button
-              onClick={() => setIsDialogOpen(false)}
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={handleExpiredConfirm}
               className="w-full bg-black hover:bg-gray-700 text-white"
             >
-              ตกลง - ออกจากระบบ
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              ตกลง - ไปหน้าเข้าสู่ระบบ
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

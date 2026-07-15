@@ -76,20 +76,37 @@ export class AuthController {
     return this.proxyToPortal('/user/change-password', body, req, res);
   }
 
+  // เมนู dynamic จาก Portal — timeout สั้นกว่า เพราะฝั่ง frontend จะ fallback เป็น static menu
+  // ถ้าดึงไม่ทัน ไม่อยากให้ sidebar ค้างรอนาน
+  @Post('menu')
+  getMenu(
+    @Body() body: { UserID: number },
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    return this.proxyToPortal('/Apps_List_Menu', body, req, res, 4000);
+  }
+
   private async proxyToPortal(
     path: string,
     body: Record<string, unknown>,
     req: Request,
     res: Response,
+    timeout = 10000,
   ) {
     try {
       const response = await axios.post(`${this.portalUrl}${path}`, body, {
         headers: {
           'Content-Type': 'application/json',
           Cookie: req.headers.cookie ?? '',
+          // /Apps_List_Menu (และ endpoint อื่นที่ต้อง login แล้ว) เช็คสิทธิ์จาก Bearer token
+          // ไม่ใช่แค่ cookie — ต้อง forward Authorization ต่อไปด้วย ไม่งั้น Portal ตอบ 401 เสมอ
+          ...(req.headers.authorization && {
+            Authorization: req.headers.authorization,
+          }),
         },
         httpsAgent: portalAgent,
-        timeout: 10000,
+        timeout,
       });
 
       this.forwardCookies(response.headers['set-cookie'], res);

@@ -9,11 +9,17 @@ import { ReservationAdminAction } from './reservations/domain/entities/reservati
 import { ReservationApproval } from './reservations/domain/entities/reservation-approval.entity';
 import { ReservationParticipant } from './reservations/domain/entities/reservation-participant.entity';
 import { ReservationNotification } from './reservations/domain/entities/reservation-notification.entity';
+import { ReservationFile } from './reservations/domain/entities/reservation-file.entity';
+import { ResourceBlockout } from './reservations/domain/entities/resource-blockout.entity';
 import { AuthModule } from './auth/auth.module';
+import { RoomsModule } from './reservations/rooms/rooms.module';
+import { CarsModule } from './reservations/cars/cars.module';
 
 @Module({
   imports: [
     AuthModule,
+    RoomsModule,
+    CarsModule,
     TypeOrmModule.forRoot({
       type: 'mssql',
       host: process.env.DB_HOST,
@@ -36,6 +42,8 @@ import { AuthModule } from './auth/auth.module';
         ReservationApproval,
         ReservationParticipant,
         ReservationNotification,
+        ReservationFile,
+        ResourceBlockout,
       ],
     }),
   ],

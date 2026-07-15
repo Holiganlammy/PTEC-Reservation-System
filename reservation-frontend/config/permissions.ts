@@ -23,6 +23,7 @@ export interface MenuItem {
   path: string;
   icon: string;
   roles: number[];
+  children?: MenuItem[];
 }
 
 // เพิ่ม entry ใหม่ที่นี่เวลาทำหน้าเพิ่ม — path ที่ไม่ตรง entry ไหนเลย default เป็น ALL_ROLES (จองได้ทุกคน)
@@ -33,13 +34,61 @@ export const MENU_CONFIG: MenuItem[] = [
     icon: "Calendar",
     roles: ALL_ROLES,
   },
+  {
+    label: "ปฏิทินของฉัน",
+    path: "/reservation-systems/my-calendar",
+    icon: "CalendarDays",
+    roles: ALL_ROLES,
+  },
+  {
+    label: "รายละเอียดการจองของฉัน",
+    path: "/reservation-systems/my-reservations",
+    icon: "ClipboardList",
+    roles: ALL_ROLES,
+  },
+  {
+    // ไม่ผูก role — ใครก็อาจเป็นหัวหน้าของใครสักคนได้ (มาจาก EmpUpperID ไม่ใช่ role_id)
+    label: "รายการรอฉันอนุมัติ",
+    path: "/reservation-systems/approvals",
+    icon: "ClipboardCheck",
+    roles: ALL_ROLES,
+  },
+  {
+    label: "Admin Dashboard",
+    path: "/reservation-systems/admin",
+    icon: "LayoutDashboard",
+    roles: RESERVATION_ADMIN_ROLES,
+  },
 ];
 
-// หา MENU_CONFIG entry ที่ match pathname แบบ longest-prefix (ให้ path ย่อยที่เจาะจงกว่าชนะ)
-function findMatchingMenuItem(pathname: string): MenuItem | undefined {
-  return MENU_CONFIG
-    .filter((item) => pathname === item.path || pathname.startsWith(`${item.path}/`))
-    .sort((a, b) => b.path.length - a.path.length)[0];
+// เดินเข้าไปใน children ด้วย เผื่อ menu เป็นแบบ tree (จาก Portal)
+function flattenMenu(menu: MenuItem[]): MenuItem[] {
+  return menu.flatMap((item) => [item, ...(item.children ? flattenMenu(item.children) : [])]);
+}
+
+// เมนูจาก Portal บาง entry เก็บเป็น URL เต็ม (คนละ origin เช่นชี้มา reservation)
+// ต้องตัด origin ออกก่อนเทียบกับ pathname ปัจจุบัน (ที่ไม่มี origin) ไม่งั้น active state จะไม่ตรงกันเลย
+export function normalizePathname(path: string): string {
+  try {
+    return new URL(path).pathname;
+  } catch {
+    return path; // เป็น relative path อยู่แล้ว ใช้ตามเดิม
+  }
+}
+
+// หา entry ที่ match pathname แบบ longest-prefix (ให้ path ย่อยที่เจาะจงกว่าชนะ)
+// เปิดให้ผ่าน menu list เองได้ (เช่นตอน breadcrumb อยากเทียบกับ dynamic menu จาก Portal แทน MENU_CONFIG)
+export function findMatchingMenuItem(
+  pathname: string,
+  menu: MenuItem[] = MENU_CONFIG
+): MenuItem | undefined {
+  return flattenMenu(menu)
+    .filter((item) => {
+      if (!item.path) return false;
+      const itemPath = normalizePathname(item.path);
+      return pathname === itemPath || pathname.startsWith(`${itemPath}/`);
+    })
+    .sort((a, b) => normalizePathname(b.path).length - normalizePathname(a.path).length)[0];
 }
 
 export function getAllowedRoles(pathname: string): number[] {

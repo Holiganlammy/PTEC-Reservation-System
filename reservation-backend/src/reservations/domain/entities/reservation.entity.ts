@@ -66,6 +66,21 @@ export class Reservation {
   @Column({ name: 'updated_by', type: 'int', nullable: true })
   updatedBy: number | null;
 
+  @Column({ name: 'cancel_reason', type: 'nvarchar', length: 500, nullable: true })
+  cancelReason: string | null;
+
+  @Column({ name: 'completed_at', type: 'datetime', nullable: true })
+  completedAt: Date | null;
+
+  @Column({ name: 'completed_by', type: 'int', nullable: true })
+  completedBy: number | null;
+
+  @Column({ name: 'deleted_by', type: 'int', nullable: true })
+  deletedBy: number | null;
+
+  @Column({ name: 'deleted_at', type: 'datetime', nullable: true })
+  deletedAt: Date | null;
+
   // FK จริงมีแค่ room_infoid (อยู่ใน database เดียวกัน)
   @ManyToOne(() => RoomInfo)
   @JoinColumn({ name: 'room_infoid' })

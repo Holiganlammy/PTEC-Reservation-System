@@ -45,6 +45,12 @@ export class ReservationNotification {
   @Column({ name: 'updated_by', type: 'int', nullable: true })
   updatedBy: number | null;
 
+  @Column({ name: 'deleted_by', type: 'int', nullable: true })
+  deletedBy: number | null;
+
+  @Column({ name: 'deleted_at', type: 'datetime', nullable: true })
+  deletedAt: Date | null;
+
   @ManyToOne(() => Reservation)
   @JoinColumn({ name: 'reservation_id' })
   reservation: Reservation;
